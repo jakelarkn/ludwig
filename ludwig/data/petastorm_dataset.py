@@ -14,14 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from ludwig.utils.data_utils import text_feature_data_field
 from petastorm import make_reader
-from petastorm.tf_utils import make_petastorm_dataset
 
 
 class PetaStormDataset:
     def __init__(self, input_features, output_features, data_parquet_fp):
-        self.reader = make_reader(data_parquet_fp)
+        self.reader = make_reader(data_parquet_fp,
+                                  reader_pool_type='dummy',
+                                  hdfs_driver='libhdfs')
         self.size = self.get_size()
         self.data_parquet_fp = data_parquet_fp
 

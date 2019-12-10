@@ -21,12 +21,14 @@ from __future__ import print_function
 import argparse
 import logging
 import os
+import posixpath
 import sys
 from pprint import pformat
 
 import yaml
 
 from ludwig.contrib import contrib_command
+from ludwig.data.petastorm_dataset import PetaStormDataset
 from ludwig.data.preprocessing import preprocess_for_training
 from ludwig.features.feature_registries import input_type_registry
 from ludwig.features.feature_registries import output_type_registry
@@ -81,6 +83,8 @@ def full_train(
         use_horovod=False,
         random_seed=42,
         debug=False,
+        data_hdfs_dir=None,
+        train_set_metadata_dict=None
         **kwargs
 ):
     """*full_train* defines the entire training procedure used by Ludwig's
@@ -266,31 +270,46 @@ def full_train(
             logger.info('{}: {}'.format(key, pformat(value, indent=4)))
         logger.info('\n')
 
-    # preprocess
-    preprocessed_data = preprocess_for_training(
-        model_definition,
-        data_df=data_df,
-        data_train_df=data_train_df,
-        data_validation_df=data_validation_df,
-        data_test_df=data_test_df,
-        data_csv=data_csv,
-        data_train_csv=data_train_csv,
-        data_validation_csv=data_validation_csv,
-        data_test_csv=data_test_csv,
-        data_hdf5=data_hdf5,
-        data_train_hdf5=data_train_hdf5,
-        data_validation_hdf5=data_validation_hdf5,
-        data_test_hdf5=data_test_hdf5,
-        train_set_metadata_json=train_set_metadata_json,
-        skip_save_processed_input=skip_save_processed_input,
-        preprocessing_params=model_definition['preprocessing'],
-        random_seed=random_seed
-    )
+    if data_hdfs_dir is None:
+        # preprocess
+        preprocessed_data = preprocess_for_training(
+            model_definition,
+            data_df=data_df,
+            data_train_df=data_train_df,
+            data_validation_df=data_validation_df,
+            data_test_df=data_test_df,
+            data_csv=data_csv,
+            data_train_csv=data_train_csv,
+            data_validation_csv=data_validation_csv,
+            data_test_csv=data_test_csv,
+            data_hdf5=data_hdf5,
+            data_train_hdf5=data_train_hdf5,
+            data_validation_hdf5=data_validation_hdf5,
+            data_test_hdf5=data_test_hdf5,
+            train_set_metadata_json=train_set_metadata_json,
+            skip_save_processed_input=skip_save_processed_input,
+            preprocessing_params=model_definition['preprocessing'],
+            random_seed=random_seed
+        )
 
-    (training_set,
-     validation_set,
-     test_set,
-     train_set_metadata) = preprocessed_data
+        (training_set,
+         validation_set,
+         test_set,
+         train_set_metadata) = preprocessed_data
+
+    # use hdfs
+    else:
+        train_parquet = posixpath.join(data_hdfs_dir, 'train.parquet')
+
+        input_features = model_definition['input_features']
+        output_features = model_definition['output_features']
+        training_set = PetaStormDataset(input_features, output_features, train_parquet)
+        validation_set = None
+        test_set = None
+
+        if train_set_metadata_dict is None:
+            raise ValueError('train_set_metadata_dict must not be None if using hdfs directory')
+        train_set_metadata = train_set_metadata_dict
 
     if is_on_master():
         logger.info('Training set: {0}'.format(training_set.size))
@@ -318,7 +337,6 @@ def full_train(
             )
 
     # run the experiment
-    import pdb; pdb.set_trace()
     model, result = train(
         training_set=training_set,
         validation_set=validation_set,
